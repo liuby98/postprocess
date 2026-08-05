@@ -1,0 +1,199 @@
+begin
+  path = "/share/home/dq135/draw/data/CRESM_CN15_ALO_GRAVEL/"
+  CASE=(/"nogravel","gravel"/)
+  legend = (/"CTL","EXP"/)
+
+  diff = new((/2,163,283/),float)
+
+  dd = new((/2,342,462/),float)
+
+  data = new((/2,3/),float)
+
+  f=addfile("/share/home/dq135/reference/CN05.1_Tm_1991_2023_JJA_025x025.nc","r")
+  t_obs_mon = f->tm(30::,:,:)
+  temp = new((/23,163,283/),float)
+  do i=0,22
+     temp(i,:,:) = dim_avg_n_Wrap(t_obs_mon(3*i:3*i+2,:,:),0)
+  end do
+  t2m_obs = dim_avg_n_Wrap(temp,0)
+
+  f1 = addfile("/share/home/dq135/CRESM_0307S92/CASES/RUN_2001_gravel/wrfinput_d01","r")
+  lat2d = f1->XLAT(0,:,:)
+  lon2d = f1->XLONG(0,:,:)
+
+  lat1d = f->lat
+  lon1d = f->lon
+
+ do k=0,1
+
+  f=addfile(path+"colmrun_2001-2023_monmean_"+CASE(k)+".nc","r")
+  t_sim_mon = tofloat(f->f_tref)
+
+     sim = new((/23,342,462/),float)
+     do i=0,22
+        sim(i,:,:) = dim_avg_n_Wrap(t_sim_mon(6*i+3:6*i+5,:,:),0)
+     end do
+     t2m = dim_avg_n_Wrap(sim,0)
+     t2m = (/t2m-273.15/)
+
+     dd(k,:,:) = t2m
+
+  t2m@lat2d = lat2d
+  t2m@lon2d = lon2d
+  t2m_ip    = rcm2rgrid_Wrap(lat2d,lon2d,t2m,lat1d,lon1d,1)
+  t2m_ip({25:29.5},{91:98}) = t2m_ip@_FillValue
+  t2m_ip    = where(ismissing(t2m_obs),t2m_ip@_FillValue,t2m_ip)
+   
+  ;printVarSummary(t2m_ip)
+  printMinMax(t2m_ip,0)
+
+  bias_t2m=t2m_ip-t2m_obs
+  
+  copy_VarCoords(t2m_ip, bias_t2m)
+  ;printVarSummary(diff_t2m)
+
+  t2m_obs({25:29.5},{91:98}) = t2m_obs@_FillValue
+  printMinMax(bias_t2m, 0)
+
+  wgt = tofloat(cos(0.01745329*lat1d))
+  tay_stat = taylor_stats(t2m_ip, t2m_obs, wgt, 1)
+
+  data(k,0) = tay_stat(0)
+  data(k,1) = tay_stat(1)
+  data(k,2) = tay_stat(7)
+
+  diff(k,:,:) = bias_t2m
+  copy_VarCoords(temp(0,:,:), diff(k,:,:))
+
+  delete(t_sim_mon)
+  delete(bias_t2m)
+  delete(t2m_ip)
+end do
+
+  dd@lat2d = lat2d
+  dd@lon2d = lon2d
+  dd_ip    = rcm2rgrid_Wrap(lat2d,lon2d,dd,lat1d,lon1d,1)
+  dd_ip(:,{25:29.5},{91:98}) = dd_ip@_FillValue
+  ; dd_ip    = where(ismissing(t_obs_mon),dd_ip@_FillValue,dd_ip)
+
+
+  difference = dd_ip(1,:,:) - dd_ip(0,:,:)
+  copy_VarCoords(dd_ip(0,:,:), difference)
+
+  printMinMax(difference, 0)
+
+  function precip_pal()
+  local cmap, ncolors
+  begin
+      cmap = (/ (/242, 242, 242/), (/154, 192, 205/), (/178, 223, 238/), \
+                (/191, 239, 255/), (/  0, 235, 235/), (/  0, 163, 247/), \
+                (/  0, 255,   0/), (/  0, 199,   0/), (/  0, 143,   0/), \
+                (/  0,  63,   0/), (/255, 255,   0/), (/255, 143,   0/), \
+                (/255,   0,   0/), (/215,   0,   0/), (/191,   0,   0/), \
+                (/255,   0, 255/), (/155,  87, 203/), (/ 92,  52, 176/) /)
+
+    ;---Create RGBA array from RGB array so we can set a couple colors to transparent
+       ncolors          = dimsizes(cmap(:,0))
+       cmap_rgba        = new((/ncolors,4/),float)
+       cmap_rgba(:,0:2) = cmap/255.
+       cmap_rgba(:,3)   = 1.0     ; set all colors to fully opaque
+       cmap_rgba(0:1,3) = 0.0     ; set first two colors to fully transparent
+       return(cmap_rgba)
+  end
+; exit
+  wks = gsn_open_wks("pdf","./figs/colmrun_t2m_JJA_diff")
+  plot = new(3,graphic)
+do k=0,1
+  res                         = True
+  res@gsnDraw                 = False
+  res@gsnFrame                = False
+  res@vpWidthF                = 0.7
+
+  res@gsnAddCyclic            = False
+  res@cnFillOn                = True
+  res@cnLinesOn               = False
+  res@mpFillOn                = False
+
+  res@lbBoxLinesOn            = False
+  res@lbOrientation           = "vertical"
+  res@lbLabelAutoStride       = False
+  ;res@lbLabelStride           = 1
+  res@lbBoxEndCapStyle        = "TriangleBothEnds"
+  res@lbTitleString           =  "~S~o~N~C"
+  res@lbTitlePosition         = "Right"
+  res@lbTitleDirection        = "Across"
+  res@lbTitleAngleF           =   90
+
+  res@mpLimitMode            = "Corners"
+  res@mpLeftCornerLatF       = 47
+  res@mpLeftCornerLonF       = 67
+  res@mpRightCornerLatF      = 13
+  res@mpRightCornerLonF      = 130
+  res@tmXTOn                 = False
+  res@tmYROn                 = False
+
+  res@mpProjection           = "LambertConformal"
+  res@mpLambertParallel1F    = 30.
+  res@mpLambertParallel2F    = 60.
+  res@mpLambertMeridianF     = 110.
+  res@mpGridAndLimbOn        = True
+  res@mpGridSpacingF        = 10          ; 可选 5、10、15
+  res@mpGridLineDashPattern = 2           ; 2=短虚线（最好看）
+  res@mpGridLineColor       = "grey80"    ; 灰色
+  res@mpGridLineThicknessF  = 1.0
+
+  res@mpDataBaseVersion      = "MediumRes"        
+  res@pmTickMarkDisplayMode  = "Always"      
+  res@mpGeophysicalLineColor  = "grey30"  
+  res@mpGeophysicalLineThicknessF = 0.05 
+  res@mpOutlineDrawOrder    = "PreDraw"
+  ; res@mpDataSetName              = "../../CASES1991-2021/ncl_cnmap/Earth..4"
+  ;res@gsnMaximize            = True
+
+  res@cnFillPalette          = "BlueWhiteOrangeRed"
+  res@cnLevelSelectionMode   = "ExplicitLevels"
+  res@cnLevels               = ispan(-30, 30, 2) / 10.0 ;(/-4.0,-3.5,-3.0,-2.5,-2.0,-1.5,-1.0,-0.5,0,1.0,1.5,2.0,2.5,3.0,3.5,4.0/)
+  plot(k) = gsn_csm_contour_map(wks,diff(k,:,:),res)
+  txres = True
+  txres@txFontHeightF = 0.02  
+  txres@txFontColor = "red"   
+  corplot    =  gsn_add_text(wks, plot(k), "CC:"+sprintf("%5.2f", data(k,0)), lon1d({92}),lat1d({21}), txres)
+  stdplot    =  gsn_add_text(wks, plot(k), "STD ratio:"+sprintf("%5.2f", data(k,1)), lon1d({90}),lat1d({17.8}), txres)
+  rmseplot   =  gsn_add_text(wks, plot(k), "RMSE:"+sprintf("%5.2f", data(k,2)),lon1d({91.5}),lat1d({15}), txres)
+  txres@txFontColor = "Black"
+  ctl        =  gsn_add_text(wks, plot(k), legend(k),lon1d({125}),lat1d({17}), txres)
+end do
+
+res2                         = res
+  delete(res2@cnFillPalette)
+  res2@cnFillPalette           = "NCV_blu_red" ;BlueWhiteOrangeRed
+  res2@cnLevelSelectionMode    = "ManualLevels"
+  res2@cnMaxLevelValF          =  0.5
+  res2@cnMinLevelValF          = -0.5
+  res2@cnLevelSpacingF         =  0.05
+  res2@gsnLeftString           = ""  
+  res2@gsnRightString          = ""
+  plot(2)     = gsn_csm_contour_map(wks,difference,res2)
+  txres@txFontColor = "Black" 
+  sim_diff1    = gsn_add_text(wks, plot(2), "EXP-CTL",lon1d({126}),lat1d({17}), txres)
+
+  dir                    = "../../shapefile_China/"
+  fShape1Name            = dir + "china.shp"
+  fShape2Name            = dir + "south_china_sea.shp"
+  fShape3Name            = dir + "river.nc"
+
+  resLine                     = True
+  resLine@gsLineThicknessF    = 0.4
+  resLine@gsLineColor         = "black"
+  line  = gsn_add_shapefile_polylines(wks, plot, fShape1Name,resLine)
+  scs   = gsn_add_shapefile_polylines(wks, plot, fShape2Name,resLine)
+  resLine@gsLineColor         = "blue"
+  river  = gsn_add_shapefile_polylines(wks, plot, fShape3Name,resLine)
+
+
+  resP                       = True
+  gsn_panel(wks,plot, (/2,3/), resP)
+  draw(plot)
+
+end
+

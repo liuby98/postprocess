@@ -1,0 +1,55 @@
+# =========================
+# 1. 敏感凭证与环境变量 (最重要)
+# =========================
+.env
+.env.*
+*.pem
+*.key
+*.cert
+secrets.json
+config.local.php    # 举例：本地含有数据库密码的配置文件
+
+# =========================
+# 2. 日志与运行时临时文件
+# =========================
+*.log
+logs/
+npm-debug.log*
+yarn-error.log*
+pids/
+tmp/
+temp/
+
+# =========================
+# 3. 依赖包目录 (非常大，不应上传，应由包管理器重新安装)
+# =========================
+node_modules/       # Node.js
+vendor/             # PHP Composer
+venv/               # Python 虚拟环境
+.venv/              # Python 虚拟环境
+__pycache__/        # Python 缓存
+*.py[cod]           # Python 编译文件
+target/             # Java Maven
+build/              # 编译输出目录
+
+# =========================
+# 4. 操作系统与 IDE 自动生成文件
+# =========================
+.DS_Store           # macOS
+Thumbs.db           # Windows
+.vscode/            # VS Code 配置
+.idea/              # IntelliJ/WebStorm 配置
+
+# =========================
+# 5. 排除模型输出文件夹
+# =========================
+figs/
+cresm/
+data/
+shapefile_China/
+# 忽略特定后缀的数据文件（双重保险）
+*.nc
+*.grd
+*.dat
+*.pdf
+*.png
