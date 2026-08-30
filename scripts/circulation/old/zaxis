@@ -1,0 +1,4 @@
+zaxistype = pressure
+size      = 1
+levels    = 300
+units     = hPa
