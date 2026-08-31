@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared reference-based evaluation for supplementary CoLM land figures.
+"""Shared evaluation and response diagnostics for supplementary CoLM figures.
 
 Each public entry script defines one or more variables and calls
 ``run_category``. For every variable the module produces reference-based
@@ -60,7 +60,7 @@ SEASONS = (("Spring", (3, 4, 5)), ("Summer", (6, 7, 8)))
 SimpleDate = namedtuple("SimpleDate", "year month day")
 
 
-def build_parser(description, variable_specs):
+def build_parser(description, variable_specs, reference_mode=True):
     """Create the common CLI plus one reference-data group per variable."""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
@@ -78,7 +78,8 @@ def build_parser(description, variable_specs):
     parser.add_argument("--nyears", type=int, default=17)
     parser.add_argument("--start-year", type=int, default=2001)
     parser.add_argument("--p-threshold", type=float, default=0.05)
-    parser.add_argument("--acc-threshold", type=float, default=0.20)
+    if reference_mode:
+        parser.add_argument("--acc-threshold", type=float, default=0.20)
     parser.add_argument(
         "--significance-style",
         choices=("stipple", "mask", "none"),
@@ -91,55 +92,72 @@ def build_parser(description, variable_specs):
         type=float,
         default=(2.0, 98.0),
         metavar=("LOW", "HIGH"),
-        help="Robust percentiles for Reference/CTL/EXP color limits.",
+        help=(
+            "Robust percentiles for Reference/CTL/EXP color limits."
+            if reference_mode
+            else "Robust percentiles for CTL/EXP color limits."
+        ),
     )
     parser.add_argument(
         "--difference-quantile",
         type=float,
         default=95.0,
-        help="Absolute percentile for symmetric bias and change limits.",
+        help=(
+            "Absolute percentile for symmetric bias and change limits."
+            if reference_mode
+            else "Absolute percentile for symmetric response limits."
+        ),
     )
     parser.add_argument("--dpi", type=int, default=300)
     parser.add_argument("--skip-spatial", action="store_true")
     parser.add_argument("--skip-regional-timeseries", action="store_true")
-    parser.add_argument("--skip-acc-timeseries", action="store_true")
+    if reference_mode:
+        parser.add_argument("--skip-acc-timeseries", action="store_true")
     parser.add_argument(
         "--check-only",
         action="store_true",
-        help="Validate model/reference variables and coverage without plotting.",
+        help=(
+            "Validate model/reference variables and coverage without plotting."
+            if reference_mode
+            else "Validate model variables without plotting."
+        ),
     )
 
-    for spec in variable_specs:
-        key = spec["key"].replace("_", "-")
-        dest = spec["key"]
-        parser.add_argument(
-            f"--{key}-reference-file",
-            dest=f"{dest}_reference_files",
-            action="append",
-            metavar="PATH_OR_GLOB",
-            help=(
-                "Reference NetCDF file or quoted glob. Repeat for multiple "
-                "files; overrides the script default."
-            ),
-        )
-        parser.add_argument(
-            f"--{key}-reference-variable",
-            dest=f"{dest}_reference_variable",
-            default=None,
-        )
-        parser.add_argument(
-            f"--{key}-reference-product",
-            dest=f"{dest}_reference_product",
-            default=None,
-            help="Product name printed on figures and CSV files.",
-        )
-        parser.add_argument(
-            f"--{key}-reference-factor",
-            dest=f"{dest}_reference_factor",
-            type=float,
-            default=None,
-            help="Explicit multiplier from reference values to plotted units.",
-        )
+    if reference_mode:
+        for spec in variable_specs:
+            key = spec["key"].replace("_", "-")
+            dest = spec["key"]
+            parser.add_argument(
+                f"--{key}-reference-file",
+                dest=f"{dest}_reference_files",
+                action="append",
+                metavar="PATH_OR_GLOB",
+                help=(
+                    "Reference NetCDF file or quoted glob. Repeat for "
+                    "multiple files; overrides the script default."
+                ),
+            )
+            parser.add_argument(
+                f"--{key}-reference-variable",
+                dest=f"{dest}_reference_variable",
+                default=None,
+            )
+            parser.add_argument(
+                f"--{key}-reference-product",
+                dest=f"{dest}_reference_product",
+                default=None,
+                help="Product name printed on figures and CSV files.",
+            )
+            parser.add_argument(
+                f"--{key}-reference-factor",
+                dest=f"{dest}_reference_factor",
+                type=float,
+                default=None,
+                help=(
+                    "Explicit multiplier from reference values to plotted "
+                    "units."
+                ),
+            )
     return parser
 
 
@@ -1559,6 +1577,362 @@ def plot_acc_timeseries(
     )
 
 
+def model_response_masks(model, land_mask):
+    masks = {}
+    for experiment in ("OFF", "CPL"):
+        masks[experiment] = {}
+        for season_name, _ in SEASONS:
+            masks[experiment][season_name] = (
+                land_mask
+                & np.all(
+                    np.isfinite(model[experiment]["ctl"][season_name]),
+                    axis=0,
+                )
+                & np.all(
+                    np.isfinite(model[experiment]["exp"][season_name]),
+                    axis=0,
+                )
+            )
+    return masks
+
+
+def plot_response_only_spatial(
+    spec, model, masks, args, lat_grid, lon_grid, land_mask
+):
+    state_fields = []
+    response_fields = []
+    for experiment in ("OFF", "CPL"):
+        for season_name, _ in SEASONS:
+            state_fields.extend(
+                [
+                    model[experiment]["ctl"][season_name],
+                    model[experiment]["exp"][season_name],
+                ]
+            )
+            response_fields.append(
+                np.nanmean(
+                    model[experiment]["exp"][season_name]
+                    - model[experiment]["ctl"][season_name],
+                    axis=0,
+                )
+            )
+    state_min, state_max = robust_state_limits(
+        state_fields,
+        land_mask,
+        args.state_quantiles[0],
+        args.state_quantiles[1],
+        spec.get("nonnegative", False),
+    )
+    response_limit = robust_symmetric_limit(
+        response_fields,
+        land_mask,
+        args.difference_quantile,
+        spec.get("difference_fallback", 1.0),
+    )
+    state_levels = np.linspace(state_min, state_max, 21)
+    response_levels = np.linspace(-response_limit, response_limit, 21)
+    print(
+        f"Color limits {spec['title']}: state={state_min:.4g}.."
+        f"{state_max:.4g}, response=+/-{response_limit:.4g} "
+        f"{spec['unit']}"
+    )
+    projection = ccrs.LambertConformal(
+        central_longitude=PROJ_CENTRAL_LON,
+        central_latitude=PROJ_CENTRAL_LAT,
+        standard_parallels=PROJ_STD_PARALLELS,
+    )
+    for experiment in ("OFF", "CPL"):
+        fig, axes = plt.subplots(
+            2,
+            3,
+            figsize=(11.5, 7.4),
+            subplot_kw={"projection": projection},
+            squeeze=False,
+        )
+        plt.subplots_adjust(
+            left=0.075,
+            right=0.985,
+            bottom=0.17,
+            top=0.88,
+            wspace=0.045,
+            hspace=0.10,
+        )
+        headers = ("CTL", "EXP", "EXP - CTL")
+        state_mappable = None
+        response_mappable = None
+        for row, (season_name, _) in enumerate(SEASONS):
+            mask = masks[experiment][season_name]
+            ctl_yearly = np.where(
+                mask[None], model[experiment]["ctl"][season_name], np.nan
+            )
+            exp_yearly = np.where(
+                mask[None], model[experiment]["exp"][season_name], np.nan
+            )
+            ctl_mean = np.nanmean(ctl_yearly, axis=0)
+            exp_mean = np.nanmean(exp_yearly, axis=0)
+            response = exp_mean - ctl_mean
+            _, p_value = ttest_rel(
+                exp_yearly, ctl_yearly, axis=0, nan_policy="omit"
+            )
+            for col, field in enumerate((ctl_mean, exp_mean, response)):
+                plot_field = field
+                if col == 2 and args.significance_style == "mask":
+                    plot_field = np.where(
+                        p_value < args.p_threshold, field, np.nan
+                    )
+                if col < 2:
+                    levels = state_levels
+                    cmap = spec.get("state_cmap", "YlGnBu")
+                else:
+                    levels = response_levels
+                    cmap = spec.get("difference_cmap", "BrBG")
+                mappable = draw_map_panel(
+                    axes[row, col],
+                    plot_field,
+                    levels,
+                    cmap,
+                    lon_grid,
+                    lat_grid,
+                    args.shapefile_dir,
+                    show_left=(col == 0),
+                    show_bottom=(row == 1),
+                )
+                if col < 2:
+                    state_mappable = mappable
+                else:
+                    response_mappable = mappable
+                    area_change = weighted_mean(
+                        response, lat_grid, mask
+                    )
+                    axes[row, col].text(
+                        0.5,
+                        0.02,
+                        f"Area mean change = {area_change:.3g}",
+                        transform=axes[row, col].transAxes,
+                        ha="center",
+                        va="bottom",
+                        fontsize=7.2,
+                        bbox={
+                            "facecolor": "white",
+                            "alpha": 0.72,
+                            "edgecolor": "none",
+                            "pad": 1,
+                        },
+                        zorder=5,
+                    )
+                    if args.significance_style == "stipple":
+                        stride = args.sig_stride
+                        significant = (
+                            mask
+                            & np.isfinite(p_value)
+                            & (p_value < args.p_threshold)
+                        )
+                        sampled = significant[::stride, ::stride]
+                        axes[row, col].scatter(
+                            lon_grid[::stride, ::stride][sampled],
+                            lat_grid[::stride, ::stride][sampled],
+                            s=3,
+                            color="0.35",
+                            edgecolors="none",
+                            transform=ccrs.PlateCarree(),
+                            rasterized=True,
+                            zorder=2,
+                        )
+            axes[row, 0].text(
+                -0.18,
+                0.5,
+                "MAM" if season_name == "Spring" else "JJA",
+                transform=axes[row, 0].transAxes,
+                rotation=90,
+                fontsize=11,
+                va="center",
+                ha="center",
+            )
+        fig.canvas.draw()
+        for col, header in enumerate(headers):
+            position = axes[0, col].get_position()
+            fig.text(
+                position.x0 + position.width / 2,
+                position.y1 + 0.012,
+                header,
+                ha="center",
+                va="bottom",
+                fontsize=10.5,
+            )
+        for row in range(2):
+            for col in range(3):
+                position = axes[row, col].get_position()
+                fig.text(
+                    position.x0 + 0.012 * position.width,
+                    position.y1 - 0.035 * position.height,
+                    f"({chr(97 + row * 3 + col)})",
+                    ha="left",
+                    va="top",
+                    fontsize=9.5,
+                    bbox={
+                        "facecolor": "white",
+                        "alpha": 0.7,
+                        "edgecolor": "none",
+                        "pad": 1,
+                    },
+                    zorder=5,
+                )
+        period_end = args.start_year + args.nyears - 1
+        fig.suptitle(
+            f"{spec['title']} - {experiment} process response "
+            f"({args.start_year}-{period_end})",
+            fontsize=14,
+            y=0.96,
+        )
+        state_cax = fig.add_axes([0.12, 0.087, 0.48, 0.022])
+        response_cax = fig.add_axes([0.69, 0.087, 0.25, 0.022])
+        state_cb = fig.colorbar(
+            state_mappable, cax=state_cax, orientation="horizontal"
+        )
+        response_cb = fig.colorbar(
+            response_mappable,
+            cax=response_cax,
+            orientation="horizontal",
+        )
+        state_cb.set_label(f"State ({spec['unit']})", fontsize=8.5)
+        response_cb.set_label(
+            f"Response ({spec['unit']})", fontsize=8.5
+        )
+        state_cb.set_ticks(np.linspace(state_min, state_max, 5))
+        response_cb.set_ticks(
+            np.linspace(-response_limit, response_limit, 5)
+        )
+        for colorbar in (state_cb, response_cb):
+            colorbar.ax.tick_params(labelsize=7.5)
+        fig.text(
+            0.5,
+            0.012,
+            (
+                "Process diagnostic only; no reference evaluation. State "
+                f"limits: P{args.state_quantiles[0]:g}-"
+                f"P{args.state_quantiles[1]:g}; response: "
+                f"P{args.difference_quantile:g}(|x|). Dots: paired "
+                f"two-sided t test, p < {args.p_threshold:g}."
+            ),
+            ha="center",
+            fontsize=8,
+        )
+        output = (
+            args.output_dir
+            / f"{spec['output_stem']}_{experiment.lower()}_spatial.pdf"
+        )
+        fig.savefig(output, dpi=args.dpi, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved: {output}")
+
+
+def plot_response_only_timeseries(
+    spec, model, masks, args, lat_grid, years
+):
+    fig, axes = plt.subplots(
+        2, 2, figsize=(13.2, 7.6), sharex=True, squeeze=False
+    )
+    csv_rows = []
+    for row, experiment in enumerate(("OFF", "CPL")):
+        for col, (season_name, _) in enumerate(SEASONS):
+            ax = axes[row, col]
+            mask = masks[experiment][season_name]
+            ctl_yearly = np.where(
+                mask[None], model[experiment]["ctl"][season_name], np.nan
+            )
+            exp_yearly = np.where(
+                mask[None], model[experiment]["exp"][season_name], np.nan
+            )
+            response_yearly = exp_yearly - ctl_yearly
+            response, lower, upper = regional_series(
+                response_yearly, lat_grid, mask
+            )
+            ctl = regional_series(ctl_yearly, lat_grid, mask)[0]
+            exp = regional_series(exp_yearly, lat_grid, mask)[0]
+            _, p_value = ttest_rel(exp, ctl, nan_policy="omit")
+            ax.fill_between(
+                years, lower, upper, color="#d73027", alpha=0.16
+            )
+            ax.plot(
+                years,
+                response,
+                color="#d73027",
+                marker="o",
+                markersize=3.2,
+                linewidth=1.4,
+                label="EXP - CTL",
+            )
+            ax.axhline(0.0, color="0.25", linewidth=0.8, linestyle="--")
+            season_label = "MAM" if season_name == "Spring" else "JJA"
+            ax.set_title(f"{experiment} | {season_label}", fontsize=11)
+            ax.text(
+                0.015,
+                0.965,
+                f"Mean change={np.nanmean(response):.3g}; p={p_value:.3g}",
+                transform=ax.transAxes,
+                va="top",
+                fontsize=8.8,
+                bbox={
+                    "facecolor": "white",
+                    "alpha": 0.78,
+                    "edgecolor": "0.75",
+                    "pad": 2,
+                },
+            )
+            ax.grid(True, color="0.88", linewidth=0.6)
+            ax.set_xlim(years[0], years[-1])
+            ax.xaxis.set_major_locator(
+                mticker.MaxNLocator(integer=True, nbins=6)
+            )
+            if col == 0:
+                ax.set_ylabel(spec["unit"])
+            if row == 1:
+                ax.set_xlabel("Year")
+            for index, year in enumerate(years):
+                csv_rows.append(
+                    {
+                        "experiment": experiment,
+                        "season": season_name,
+                        "year": year,
+                        "ctl": ctl[index],
+                        "exp": exp[index],
+                        "exp_minus_ctl": response[index],
+                        "response_ci99_low": lower[index],
+                        "response_ci99_high": upper[index],
+                    }
+                )
+    axes[0, 0].legend(frameon=False, loc="best", fontsize=9)
+    fig.suptitle(
+        f"{spec['title']}: China-land gravel-response time series",
+        fontsize=14,
+    )
+    fig.text(
+        0.5,
+        0.015,
+        (
+            "Process diagnostic only; no reference evaluation. Shading is a "
+            "99% grid-sampling confidence interval of the area-weighted "
+            "EXP-CTL response; p values use a paired test across years."
+        ),
+        ha="center",
+        fontsize=8,
+    )
+    fig.tight_layout(rect=(0.02, 0.05, 1, 0.95))
+    output = (
+        args.output_dir
+        / f"{spec['output_stem']}_response_timeseries.pdf"
+    )
+    fig.savefig(output, dpi=args.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {output}")
+    write_csv(
+        args.output_dir
+        / f"{spec['output_stem']}_response_timeseries.csv",
+        list(csv_rows[0]),
+        csv_rows,
+    )
+
+
 def validate_arguments(args):
     if args.nyears < 3:
         raise ValueError("--nyears must be at least 3")
@@ -1671,4 +2045,69 @@ def run_category(variable_specs, description):
                 lat_grid,
                 product,
                 years,
+            )
+
+
+def run_response_only_category(variable_specs, description):
+    """Run model-only process diagnostics without any reference product."""
+    parser = build_parser(description, [], reference_mode=False)
+    args = parser.parse_args()
+    validate_arguments(args)
+    model_files = resolve_model_files(args)
+    validate_model_inputs(model_files, variable_specs, args.nyears)
+    years = list(range(args.start_year, args.start_year + args.nyears))
+    if args.check_only:
+        print(
+            "All model inputs passed validation; no reference data are "
+            "required and no figure was created."
+        )
+        return
+    (
+        lat2d,
+        lon2d,
+        lat1d,
+        lon1d,
+        lat_grid,
+        lon_grid,
+        land_mask,
+    ) = load_plot_grid(args.wrfinput, args.mask_file, args.mask_variable)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["CARTOPY_OFFLINE"] = "true"
+    for spec in variable_specs:
+        print(f"\n=== {spec['title']} | process response only ===")
+        model = load_model_yearly(
+            model_files,
+            spec,
+            args,
+            lat2d,
+            lon2d,
+            lat1d,
+            lon1d,
+            land_mask,
+        )
+        masks = model_response_masks(model, land_mask)
+        for experiment in ("OFF", "CPL"):
+            for season_name, _ in SEASONS:
+                count = np.count_nonzero(masks[experiment][season_name])
+                if count < 3:
+                    raise ValueError(
+                        f"Unified mask has only {count} cells for "
+                        f"{experiment} {season_name}"
+                    )
+                print(
+                    f"Unified mask {experiment} {season_name}: {count} cells"
+                )
+        if not args.skip_spatial:
+            plot_response_only_spatial(
+                spec,
+                model,
+                masks,
+                args,
+                lat_grid,
+                lon_grid,
+                land_mask,
+            )
+        if not args.skip_regional_timeseries:
+            plot_response_only_timeseries(
+                spec, model, masks, args, lat_grid, years
             )

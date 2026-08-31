@@ -1,4 +1,4 @@
-# Supplementary reference-based land evaluation
+# Supplementary land evaluation and process diagnostics
 
 The supplementary land scripts now evaluate only the manuscript-relevant
 variables requested for the gravel experiments:
@@ -8,16 +8,16 @@ variables requested for the gravel experiments:
 | `land_evapotranspiration_response.py` | `f_fevpa` (total ET only) | GLEAM v4.2a `E` |
 | `land_runoff_response.py` | `f_rnof` (total runoff only) | G-RUN ENSEMBLE multi-model median (MMM) |
 | `land_snow_response.py` | `f_scv` (SWE), `f_fsno` (snow-cover fraction) | ERA5-Land SWE benchmark; MODIS Terra MOD10CM C6.1 SCF |
-| `land_water_balance_response.py` | `f_qinfl` (infiltration only) | MERRA-2 `QINFIL` reanalysis benchmark |
+| `land_water_balance_response.py` | `f_qinfl` (infiltration only) | No reference; process response diagnostic only |
 
 The former surface-energy group is intentionally removed. ET components,
 surface/subsurface runoff, snow depth, recharge, storage, and water-table depth
 are no longer plotted by these scripts.
 
-## What every variable produces
+## Reference-evaluated variables
 
-Each variable is processed independently, even when two variables share one
-entry script. The output set is:
+ET, total runoff, SWE, and snow-cover fraction are processed independently.
+Their output set is:
 
 1. `<stem>_off_spatial.pdf` and `<stem>_cpl_spatial.pdf`
    - rows: MAM and JJA;
@@ -38,15 +38,29 @@ entry script. The output set is:
 4. `<stem>_regional_metrics.csv`
    - the exact time-series metrics printed on the figure.
 
-All comparisons use one common time window, the same 0.25-degree target grid,
+These comparisons use one common time window, the same 0.25-degree target grid,
 cosine-latitude area weighting, and a unified valid-cell mask across reference,
 CTL, and EXP.
+
+## Infiltration without reference evaluation
+
+Infiltration is retained only as a model process diagnostic. It does not read
+MERRA-2 or any other reference product and does not calculate bias, RMSE, KGE,
+or spatial ACC. It produces:
+
+1. `supp_land_infiltration_off_spatial.pdf` and
+   `supp_land_infiltration_cpl_spatial.pdf`, with MAM/JJA rows and CTL, EXP,
+   and EXP-CTL columns;
+2. `supp_land_infiltration_response_timeseries.pdf` and `.csv`, showing the
+   yearly China-land EXP-CTL response with a 99% grid-sampling confidence
+   interval and a paired test across years.
 
 ## Color ranges
 
 The fixed wide limits in the original response figures have been removed.
 Defaults now use the 2nd-98th percentiles of all Reference/CTL/EXP state fields
-and the 95th percentile of absolute bias/change fields. This keeps isolated
+(CTL/EXP for infiltration) and the 95th percentile of absolute bias/change
+fields. This keeps isolated
 extremes from washing out the main spatial signal while retaining out-of-range
 values with extended colorbar ends.
 
@@ -109,6 +123,11 @@ pass its path explicitly. The reference must be a runoff *rate*; if a file is
 stored as monthly accumulation, retain a correct `mm month-1` units attribute
 so the script can divide by calendar days.
 
+On the Figshare file grid, download only the first standalone file,
+`G-RUN_ENSEMBLE_MMM.nc` (about 340 MB). Do not use **Download all** and do not
+download the multi-GB forcing/member ZIP archives. The standalone MMM file is
+the authors' recommended single median estimate and already covers 1902-2019.
+
 ### Snow water equivalent
 
 No single SWE product is ideal over the Tibetan Plateau. Recommended products
@@ -124,27 +143,33 @@ Sources: <https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land>,
 <https://catalogue.ceda.ac.uk/uuid/b06c4c5ea7694d30b33e1db04f0ecb6a/>,
 and <https://climate-scenarios.canada.ca/?page=blended-snow-nh>.
 
+For seasonal-mean evaluation, use the much smaller **ERA5-Land monthly
+averaged** data set rather than the hourly page. Select only `Snow depth water
+equivalent`, years 2001-2017, months March-August, monthly averaged reanalysis,
+NetCDF, and a China subset. If the web form does not allow or submit all years,
+use the CDS API and split the request by year; large ERA5-Land selections are
+deliberately restricted to protect the CDS queue.
+
 ### Snow-cover fraction
 
 **Use MODIS Terra MOD10CM Collection 6.1 monthly snow cover**, matching the
-reference choice in the attached manuscript. It is a 0.05-degree monthly
-fractional snow-cover product beginning in 2000 and covers all of 2001-2017.
+reference choice in the attached manuscript. It provides monthly mean snow
+cover extent on a 0.05-degree CMG beginning in March 2000 and covers all of
+2001-2017.
 MOD10C1 daily data can be monthly averaged if MOD10CM is unavailable. ESA Snow
 CCI fractional snow cover is a useful second reference for sensitivity.
 
-Sources: <https://modis.gsfc.nasa.gov/data/dataprod/mod10.php> and
+Sources: <https://nsidc.org/data/mod10cm/versions/61>,
+<https://modis.gsfc.nasa.gov/data/dataprod/mod10.php>, and
 <https://climate.esa.int/en/projects/snow/>.
 
-### Infiltration
-
-There is no mainstream global, time-varying, direct observational infiltration
-product suitable for gridded 2001-2017 validation. The script therefore uses
-**MERRA-2 M2T1NXLND `QINFIL`** as a reanalysis benchmark. `QINFIL` is the soil
-water infiltration rate in `kg m-2 s-1`, available globally from 1980 to
-present at 0.5 x 0.625 degrees. It must be described as a benchmark/intermodel
-comparison, not observational truth.
-
-Source: <https://www.earthdata.nasa.gov/data/catalog/ges-disc-m2t1nxlnd-5.12.4>.
+From the NSIDC product list shown in the download interface, click the Terra
+product ID **MOD10CM** (not daily MOD10C1 and not Aqua MYD10CM), open **Data
+Access & Tools**, then launch **Earthdata Search** and sign in with a free NASA
+Earthdata Login. Apply the temporal filter and download the Version 61
+granules. Native files are HDF-EOS2; they must be QA-filtered and converted to
+a regular latitude-longitude CF-NetCDF before being passed to the plotting
+script.
 
 ## Reference directory suggestions
 
@@ -154,7 +179,6 @@ listing. A consistent layout is:
 ```text
 /share/home/dq135/openbench/Reference/Grid/LowRes/Water/
   Total_Runoff/G_RUN_ENSEMBLE/*.nc
-  Infiltration/MERRA2/*.nc4
 
 /share/home/dq135/openbench/Reference/Grid/HigRes/Snow/
   Snow_Water_Equivalent/ERA5_Land/*.nc
@@ -190,8 +214,6 @@ python land_snow_response.py \
   --check-only
 
 python land_water_balance_response.py \
-  --infiltration-reference-file '/path/to/MERRA2*tavg1_2d_lnd_Nx*.nc4' \
-  --infiltration-reference-variable QINFIL \
   --check-only
 ```
 
@@ -206,8 +228,10 @@ python land_snow_response.py \
   --check-only
 ```
 
-The check is intentionally strict: all four model files and every configured
-reference must contain March-August data for all years from 2001 through 2017.
+The check is intentionally strict: all four model files must contain the
+requested variables and every configured ET/runoff/snow reference must contain
+March-August data for all years from 2001 through 2017. Infiltration requires
+only the four model files.
 
 ## Run all requested figures
 
@@ -218,12 +242,11 @@ python land_runoff_response.py \
 python land_snow_response.py \
   --swe-reference-file '/path/to/era5_land_swe*.nc' \
   --scf-reference-file '/path/to/mod10cm*.nc'
-python land_water_balance_response.py \
-  --infiltration-reference-file '/path/to/MERRA2*tavg1_2d_lnd_Nx*.nc4'
+python land_water_balance_response.py
 ```
 
-Use `--skip-spatial`, `--skip-regional-timeseries`, or
-`--skip-acc-timeseries` to redraw only selected products.
+Use `--skip-spatial`, `--skip-regional-timeseries`, or (for reference-evaluated
+variables) `--skip-acc-timeseries` to redraw only selected products.
 
 ## Other defensible supplementary variables
 
