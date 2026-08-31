@@ -1,38 +1,59 @@
 #!/usr/bin/env python3
-"""Plot offline and coupled gravel responses of snow state variables."""
-
-import numpy as np
+"""Evaluate SWE and snow-cover fraction in OFF and CPL experiments."""
 
 from _land_response_common import run_category
 
 
 VARIABLES = [
     {
+        "key": "swe",
         "variable": "f_scv",
         "title": "Snow water equivalent",
         "unit": "mm",
         "factor": 1.0,
-        "levels": np.linspace(-20, 20, 33),
-        "ticks": np.arange(-20, 21, 10),
-        "cmap": "RdBu_r",
+        "output_stem": "supp_land_swe",
+        "nonnegative": True,
+        "state_cmap": "Blues",
+        "difference_cmap": "RdBu_r",
+        "difference_fallback": 1.0,
+        "reference_product": "ERA5-Land SWE benchmark",
+        "reference_globs": (
+            "/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/"
+            "Snow_Water_Equivalent/ERA5_Land/*.nc*",
+        ),
+        "reference_variables": (
+            "sd",
+            "SWE",
+            "swe",
+            "SNOMAS",
+            "snow_water_equivalent",
+        ),
+        "reference_quantity": "amount_mm",
     },
     {
-        "variable": "f_snowdp",
-        "title": "Snow depth",
-        "unit": "cm",
-        "factor": 100.0,
-        "levels": np.linspace(-6, 6, 25),
-        "ticks": np.arange(-6, 7, 3),
-        "cmap": "RdBu_r",
-    },
-    {
+        "key": "scf",
         "variable": "f_fsno",
         "title": "Snow-cover fraction",
         "unit": "percentage points",
         "factor": 100.0,
-        "levels": np.linspace(-12, 12, 25),
-        "ticks": np.arange(-12, 13, 6),
-        "cmap": "RdBu_r",
+        "output_stem": "supp_land_scf",
+        "nonnegative": True,
+        "state_cmap": "Blues",
+        "difference_cmap": "RdBu_r",
+        "difference_fallback": 1.0,
+        "reference_product": "MODIS Terra MOD10CM Collection 6.1",
+        "reference_globs": (
+            "/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/"
+            "Snow_Cover_Fraction/MODIS_MOD10CM/*.nc*",
+        ),
+        "reference_variables": (
+            "Snow_Cover_Monthly_CMG",
+            "NDSI_Snow_Cover",
+            "snow_cover_fraction",
+            "SCF",
+            "FRSNO",
+        ),
+        "reference_quantity": "percent",
     },
 ]
 
@@ -40,6 +61,5 @@ VARIABLES = [
 if __name__ == "__main__":
     run_category(
         VARIABLES,
-        "supp_land_snow_response.pdf",
-        "Snow-state response to gravel in offline and coupled simulations.",
+        "Reference-based SWE/SCF evaluation and gravel-response figures.",
     )
