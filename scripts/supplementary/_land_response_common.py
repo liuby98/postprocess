@@ -123,9 +123,9 @@ def resolve_model_files(args):
     return {
         "OFF": {
             "ctl": args.off_ctl
-            or args.data_dir / "colmoff_2001-2023_monmean_nogravel.nc",
+            or args.data_dir / "colmoff_2001-2017_nogravel.nc",
             "exp": args.off_exp
-            or args.data_dir / "colmoff_2001-2023_monmean_gravel.nc",
+            or args.data_dir / "colmoff_2001-2017_gravel.nc",
         },
         "CPL": {
             "ctl": args.cpl_ctl

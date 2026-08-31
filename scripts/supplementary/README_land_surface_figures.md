@@ -33,9 +33,10 @@ type still has its own entry script and PDF output.
   Snow depth is converted from m to cm, and snow-cover fraction to percentage
   points.
 
-The offline files contain a longer period, but the default reads the first 17
-six-month blocks so that OFF and CPL use the same 2001-2017 window as the
-existing supplementary soil-temperature/moisture evaluation.
+The default input filenames are `colmoff_2001-2017_nogravel.nc`,
+`colmoff_2001-2017_gravel.nc`, `colmrun_2001-2017_nogravel.nc`, and
+`colmrun_2001-2017_gravel.nc`. Therefore, OFF and CPL use the same 2001-2017
+window as the existing supplementary soil-temperature/moisture evaluation.
 
 ## Run
 
