@@ -171,6 +171,51 @@ granules. Native files are HDF-EOS2; they must be QA-filtered and converted to
 a regular latitude-longitude CF-NetCDF before being passed to the plotting
 script.
 
+#### Convert and merge MOD10CM HDF files
+
+`preprocess_mod10cm.py` performs the complete conversion in one pass. It reads
+the HDF4 granules one at a time, extracts `Snow_Cover_Monthly_CMG` and
+`Snow_Spatial_QA`, keeps provider-valid values in the range 0-100%, masks the
+categorical values 211/250/253/254/255, retains only QA=0 by default, subsets
+65-145 E and 5-60 N, sorts months parsed from `AYYYYDDD`, and writes one
+compressed CF-NetCDF. Missing months are reported but never converted to zero.
+
+Install the HDF/NetCDF readers in the plotting environment:
+
+```bash
+conda activate plot
+conda install -c conda-forge pyhdf netcdf4 numpy
+```
+
+With the directory layout below, first validate all downloaded files:
+
+```bash
+cd /share/home/dq135/draw/scripts/supplementary
+python preprocess_mod10cm.py --check-only
+```
+
+Then convert and merge them:
+
+```bash
+python preprocess_mod10cm.py
+```
+
+The default output is:
+
+```text
+/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/
+Snow_Cover_Fraction/MODIS_MOD10CM/MOD10CM_SCF_2001_2017.nc
+```
+
+The output stores ascending cell-center latitude, longitude, mid-month `time`,
+monthly `time_bnds`, filtered snow-cover percentage, and the original QA field.
+If the output exists, use `--overwrite`. To require all 204 calendar months,
+add `--strict-coverage`; otherwise documented MODIS outages remain missing. A
+different subset can be supplied with, for example, `--bbox 70 10 140 55`.
+
+No intermediate monthly NetCDF files are created. The merged output is
+immediately compatible with the default SCF glob in `land_snow_response.py`.
+
 ## Reference directory suggestions
 
 The non-GLEAM products are not present in the supplied OpenBench directory
