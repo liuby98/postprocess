@@ -460,10 +460,17 @@ def inspect_reference_files(files, args, spec, required_years):
         detail = ", ".join(
             f"{year}:{months}" for year, months in missing.items()
         )
-        raise ValueError(
-            f"{reference_product(args, spec)} lacks required March-August "
-            f"coverage (year:missing months): {detail}"
-        )
+        if spec.get("allow_incomplete_seasons", False):
+            print(
+                f"[WARN] {reference_product(args, spec)} lacks some "
+                f"March-August months ({detail}); each affected season-year "
+                "will be omitted from Reference, CTL, and EXP together"
+            )
+        else:
+            raise ValueError(
+                f"{reference_product(args, spec)} lacks required March-August "
+                f"coverage (year:missing months): {detail}"
+            )
     print(
         f"[OK] {reference_product(args, spec)}: {len(files)} file(s), "
         f"variable={first_variable}, units={first_units or '(missing)'}, "
@@ -667,6 +674,8 @@ def load_reference_yearly(
     monthly_mean = {}
     for key in required:
         if key not in monthly_sum:
+            if spec.get("allow_incomplete_seasons", False):
+                continue
             raise ValueError(f"Reference data missing year/month {key}")
         with np.errstate(invalid="ignore", divide="ignore"):
             monthly_mean[key] = np.where(
@@ -678,10 +687,24 @@ def load_reference_yearly(
     for season_name, months in SEASONS:
         yearly = []
         for year in years:
-            native = np.nanmean(
-                np.stack([monthly_mean[(year, month)] for month in months]),
-                axis=0,
-            )
+            keys = [(year, month) for month in months]
+            missing_months = [
+                month for year_month, month in zip(keys, months)
+                if year_month not in monthly_mean
+            ]
+            if missing_months:
+                native = np.full(
+                    (len(common_lat), len(common_lon)), np.nan, dtype=float
+                )
+                print(
+                    f"[WARN] {spec['title']} {season_name} {year}: "
+                    f"missing month(s) {missing_months}; omitting this "
+                    "season-year"
+                )
+            else:
+                native = np.nanmean(
+                    np.stack([monthly_mean[key] for key in keys]), axis=0
+                )
             target = regrid_regular_to_target(
                 native, common_lat, common_lon, lat_grid, lon_grid
             )
@@ -765,12 +788,34 @@ def add_gridlines(ax, show_left, show_bottom):
     gridlines.ylabel_style = {"size": 7.5}
 
 
+def align_model_years_to_reference(reference, model, years, spec):
+    """Apply the reference's season-year availability to all simulations."""
+    for season_name, _ in SEASONS:
+        available = np.any(
+            np.isfinite(reference[season_name]), axis=(1, 2)
+        )
+        omitted = [
+            year for year, keep in zip(years, available) if not keep
+        ]
+        if omitted:
+            print(
+                f"[WARN] {spec['title']} {season_name}: omitting years "
+                f"{omitted} from Reference/CTL/EXP comparisons"
+            )
+            for experiment in ("OFF", "CPL"):
+                for role in ("ctl", "exp"):
+                    model[experiment][role][season_name][~available] = np.nan
+
+
 def unified_mask(reference, ctl, exp, land_mask):
+    available = np.any(np.isfinite(reference), axis=(1, 2))
+    if not np.any(available):
+        return np.zeros_like(land_mask, dtype=bool)
     return (
         land_mask
-        & np.all(np.isfinite(reference), axis=0)
-        & np.all(np.isfinite(ctl), axis=0)
-        & np.all(np.isfinite(exp), axis=0)
+        & np.all(np.isfinite(reference[available]), axis=0)
+        & np.all(np.isfinite(ctl[available]), axis=0)
+        & np.all(np.isfinite(exp[available]), axis=0)
     )
 
 
@@ -1999,6 +2044,9 @@ def run_category(variable_specs, description):
             lat1d,
             lon1d,
             land_mask,
+        )
+        align_model_years_to_reference(
+            reference, model, years, spec
         )
         masks = common_plot_data(reference, model, land_mask)
         for experiment in ("OFF", "CPL"):
