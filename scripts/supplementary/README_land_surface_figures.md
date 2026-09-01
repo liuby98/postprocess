@@ -213,6 +213,15 @@ If the output exists, use `--overwrite`. To require all 204 calendar months,
 add `--strict-coverage`; otherwise documented MODIS outages remain missing. A
 different subset can be supplied with, for example, `--bbox 70 10 140 55`.
 
+For the 2001-2017 archive used here, official outages leave June 2001, March
+2002, December 2003, and February 2016 unavailable. Only the first two affect
+the March-August evaluation. The snow script therefore treats 2001 JJA and
+2002 MAM as unavailable SCF season-years and removes the same season-years from
+the corresponding CTL and EXP comparisons. It does not substitute zero,
+interpolate a missing month, or calculate a two-month mean as a three-month
+season. Consequently, SCF MAM and JJA metrics each use 16 common complete
+season-years, while ERA5-Land SWE still uses all 17 years.
+
 No intermediate monthly NetCDF files are created. The merged output is
 immediately compatible with the default SCF glob in `land_snow_response.py`.
 
