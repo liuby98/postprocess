@@ -21,8 +21,8 @@ yearly series, regional metrics, or ACC figures. It creates only:
 ```text
 supp_land_snow_monthly_timeseries_gravel_gt_0p3.pdf
 supp_land_snow_monthly_timeseries_gravel_gt_0p3.csv
-supp_land_swe_snow_covered_area_timeseries_gravel_gt_0p3.pdf
-supp_land_swe_snow_covered_area_timeseries_gravel_gt_0p3.csv
+supp_land_swe_colm_snow_mask_timeseries_gravel_gt_0p3.pdf
+supp_land_swe_colm_snow_mask_timeseries_gravel_gt_0p3.csv
 supp_land_swe_range_proportions_gravel_gt_0p3.pdf
 supp_land_swe_range_proportions_gravel_gt_0p3.csv
 ```
@@ -34,21 +34,19 @@ monthly axis with January-February and September-December set to missing. This
 intentionally breaks the model curves between annual March-August segments.
 Every month has a tick; the year is printed only below January.
 
-The additional two-row SWE figure reports a snow-covered-area conditional
-mean for OFF and CPL.  For each month it is calculated separately for the
-reference, CTL, and EXP as:
+The additional two-row SWE figure reports OFF and CPL averages over CoLM's
+own snow-covered grid cells. For each experiment and month, its common mask is:
 
 ```text
-sum(grid-cell area * grid-box SWE) /
-sum(grid-cell area * snow-cover fraction)
+gravel > 0.3 AND (CTL f_fsno >= threshold OR EXP f_fsno >= threshold)
 ```
 
-ERA5-Land supplies `sd` and its own `snowc`; CoLM supplies `f_scv` and
-`f_fsno`. Cells with snow-cover fraction below 0.01 are excluded by default to
-avoid treating numerical traces as physical snow. Override this with
-`--snow-cover-threshold`. This is an explicitly labelled conditional
-sensitivity diagnostic. It does not replace the grid-box-mean SWE curve in
-the four-row main figure, and it does not multiply `sd` by `snowc`.
+ERA5-Land `sd`, CTL `f_scv`, and EXP `f_scv` are area-averaged on that
+identical dynamic mask. Because CoLM contains March-August only, all three
+curves in this mask-conditioned figure contain March-August only. The default
+`f_fsno` threshold is 0.01; override it with `--snow-cover-threshold`. No
+ERA5-Land snow-cover file is needed. This diagnostic does not replace the
+all-gravel-region SWE curve in the four-row main figure.
 
 All snow regional means and SWE pies use only China-land target cells whose
 vertically averaged gravel volumetric fraction is strictly greater than 0.3.
@@ -108,16 +106,14 @@ Bias, RMSE, KGE, or ACC file is generated.
 
 /share/home/dq135/openbench/Reference/Grid/HigRes/Snow/
   Snow_Water_Equivalent/ERA5_Land/*.nc*
-  Snow_Cover_Fraction/ERA5_Land/*.nc*
   Snow_Cover_Fraction/MODIS_MOD10CM/*.nc*
 ```
 
 Expected snow files include the 204-month ERA5-Land `sd` NetCDF and the merged
 MOD10CM `Snow_Cover_Monthly_CMG` NetCDF produced by `preprocess_mod10cm.py`.
-The conditional SWE diagnostic additionally requires the matching 204-month
-ERA5-Land `snowc` file on exactly the same monthly period. ERA5-Land `snowc`
-is used only as the snow-covered-area denominator; MOD10CM remains the
-independent reference for evaluating CoLM `f_fsno`.
+CoLM `f_fsno` supplies the dynamic snow-presence mask; no ERA5-Land `snowc`
+file is required. MOD10CM remains the independent reference for evaluating
+CoLM `f_fsno`.
 
 ## Convert MOD10CM HDF files
 
@@ -173,8 +169,6 @@ Paths and variables can be supplied explicitly, for example:
 python land_snow_response.py \
   --swe-reference-file '/path/ERA5_Land_SWE_2001-2017.nc' \
   --swe-reference-variable sd \
-  --era5-snow-cover-reference-file '/path/ERA5_Land_SnowCover_2001-2017.nc' \
-  --era5-snow-cover-reference-variable snowc \
   --scf-reference-file '/path/MOD10CM_SCF_2001_2017.nc' \
   --scf-reference-variable Snow_Cover_Monthly_CMG \
   --gravel-file '/path/vf_gravels_s.nc' \
@@ -194,9 +188,8 @@ echo $! > logs/run_land_supplementary.pid
 
 The driver stops on the first failure and writes a separate timestamped log
 for every check and figure script. Its default snow paths are listed above;
-override `SWE_REFERENCE_FILE`, `ERA5_SNOW_COVER_REFERENCE_FILE`,
-`MODIS_SCF_REFERENCE_FILE`, or `SNOW_COVER_THRESHOLD` in the environment when
-needed.
+override `SWE_REFERENCE_FILE`, `MODIS_SCF_REFERENCE_FILE`, or
+`SNOW_COVER_THRESHOLD` in the environment when needed.
 
 Individual commands remain available:
 
