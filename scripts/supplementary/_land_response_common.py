@@ -185,8 +185,11 @@ def require_file(path, label):
 
 def clean_array(data):
     if np.ma.isMaskedArray(data):
-        data = data.filled(np.nan)
-    data = np.asarray(data, dtype=np.float64)
+        # Convert integer masked arrays (for example MOD10CM uint8) to
+        # floating point before replacing their masked cells with NaN.
+        data = np.ma.asarray(data, dtype=np.float64).filled(np.nan)
+    else:
+        data = np.asarray(data, dtype=np.float64)
     data[np.abs(data) > 1.0e30] = np.nan
     data[data == -9999] = np.nan
     return data
