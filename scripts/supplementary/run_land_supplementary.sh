@@ -7,13 +7,11 @@ cd "${SCRIPT_DIR}"
 mkdir -p figs logs
 
 SWE_REFERENCE_FILE=${SWE_REFERENCE_FILE:-/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/Snow_Water_Equivalent/ERA5_Land/ERA5_Land_SWE_2001-2017.nc}
-ERA5_SNOW_COVER_REFERENCE_FILE=${ERA5_SNOW_COVER_REFERENCE_FILE:-/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/Snow_Cover_Fraction/ERA5_Land/ERA5_Land_SnowCover_2001-2017.nc}
 MODIS_SCF_REFERENCE_FILE=${MODIS_SCF_REFERENCE_FILE:-/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/Snow_Cover_Fraction/MODIS_MOD10CM/MOD10CM_SCF_2001_2017.nc}
 SNOW_COVER_THRESHOLD=${SNOW_COVER_THRESHOLD:-0.01}
 
 for required_file in \
     "${SWE_REFERENCE_FILE}" \
-    "${ERA5_SNOW_COVER_REFERENCE_FILE}" \
     "${MODIS_SCF_REFERENCE_FILE}"
 do
     if [[ ! -f "${required_file}" ]]; then
@@ -34,8 +32,6 @@ timestamp=$(date +%Y%m%d_%H%M%S)
 snow_args=(
     --swe-reference-file "${SWE_REFERENCE_FILE}"
     --swe-reference-variable sd
-    --era5-snow-cover-reference-file "${ERA5_SNOW_COVER_REFERENCE_FILE}"
-    --era5-snow-cover-reference-variable snowc
     --scf-reference-file "${MODIS_SCF_REFERENCE_FILE}"
     --scf-reference-variable Snow_Cover_Monthly_CMG
     --snow-cover-threshold "${SNOW_COVER_THRESHOLD}"
