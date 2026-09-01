@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot monthly SWE/SCF diagnostics over gravel-rich regions."""
+"""Plot grid-box and snow-covered-area SWE/SCF diagnostics."""
 
 from _snow_monthly_diagnostics import run_snow_monthly_diagnostics
 
@@ -55,5 +55,8 @@ VARIABLES = [
 if __name__ == "__main__":
     run_snow_monthly_diagnostics(
         VARIABLES,
-        "Monthly SWE/SCF series and SWE-range proportions for gravel > 0.3.",
+        (
+            "Monthly grid-box/conditional SWE, SCF, and SWE-range diagnostics "
+            "for gravel > 0.3."
+        ),
     )
