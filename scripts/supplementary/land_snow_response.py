@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot grid-box and snow-covered-area SWE/SCF diagnostics."""
+"""Plot grid-box and CoLM-snow-mask SWE/SCF diagnostics."""
 
 from _snow_monthly_diagnostics import run_snow_monthly_diagnostics
 
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     run_snow_monthly_diagnostics(
         VARIABLES,
         (
-            "Monthly grid-box/conditional SWE, SCF, and SWE-range diagnostics "
-            "for gravel > 0.3."
+            "Monthly grid-box/CoLM-snow-mask SWE, SCF, and SWE-range "
+            "diagnostics for gravel > 0.3."
         ),
     )
