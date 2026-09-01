@@ -61,25 +61,6 @@ PIE_RANGES = (
     ("5-20 mm", 5.0, 20.0, False),
 )
 PIE_COLORS = ("#2171b5", "#6baed6", "#c6dbef")
-ERA5_SNOW_COVER_SPEC = {
-    "key": "era5_snow_cover",
-    "title": "ERA5-Land snow cover",
-    "unit": "percent",
-    "nonnegative": True,
-    "reference_product": "ERA5-Land snow-cover fraction",
-    "reference_globs": (
-        "/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/"
-        "Snow_Cover_Fraction/ERA5_Land/*.nc*",
-    ),
-    "reference_variables": (
-        "snowc",
-        "snow_cover",
-        "snow_cover_fraction",
-        "SC",
-    ),
-    "reference_quantity": "percent",
-    "reference_default_factor": 100.0,
-}
 
 
 def build_snow_parser(description, specs):
@@ -103,8 +84,8 @@ def build_snow_parser(description, specs):
         type=float,
         default=0.01,
         help=(
-            "Minimum snow-covered fraction retained in the conditional SWE "
-            "diagnostic (default: 0.01, i.e. 1 percent)."
+            "Minimum CoLM f_fsno used to identify snow-covered grid cells "
+            "(default: 0.01, i.e. 1 percent)."
         ),
     )
     parser.add_argument("--check-only", action="store_true")
@@ -516,42 +497,34 @@ def normalize_snow_fraction(data, label):
     return np.clip(output, 0.0, 1.0)
 
 
-def snow_covered_area_mean_series(
-    swe,
-    snow_fraction,
-    lat_grid,
-    mask,
-    minimum_fraction,
-):
-    """Return regional SWE per unit snow-covered area.
-
-    ``swe`` is a grid-box-mean water-equivalent thickness.  The regional
-    conditional mean is sum(area * swe) / sum(area * snow_fraction), which is
-    numerically safer than averaging cellwise swe / snow_fraction.
-    """
-    if swe.shape != snow_fraction.shape:
+def dynamic_mask_area_mean_series(data, dynamic_mask, lat_grid, base_mask):
+    """Return area means over a time-varying CoLM snow-presence mask."""
+    if data.shape != dynamic_mask.shape:
         raise ValueError(
-            "SWE and snow-cover arrays must have identical shapes; found "
-            f"{swe.shape} and {snow_fraction.shape}"
+            "Data and dynamic-mask arrays must have identical shapes; found "
+            f"{data.shape} and {dynamic_mask.shape}"
         )
     weights = np.cos(np.deg2rad(lat_grid))
     values = []
-    for swe_field, fraction_field in zip(swe, snow_fraction):
-        valid = (
-            mask
-            & np.isfinite(swe_field)
-            & np.isfinite(fraction_field)
-            & (fraction_field >= minimum_fraction)
-        )
+    for field, snow_mask in zip(data, dynamic_mask):
+        valid = base_mask & snow_mask & np.isfinite(field)
         if np.count_nonzero(valid) < 1:
             values.append(np.nan)
             continue
-        numerator = np.sum(swe_field[valid] * weights[valid])
-        denominator = np.sum(
-            fraction_field[valid] * weights[valid]
+        values.append(
+            np.sum(field[valid] * weights[valid]) / np.sum(weights[valid])
         )
-        values.append(numerator / denominator if denominator > 0 else np.nan)
     return np.asarray(values)
+
+
+def select_active_model_months(data, nyears):
+    """Select March-August from a January-December reference array."""
+    indices = [
+        year_index * 12 + month - 1
+        for year_index in range(nyears)
+        for month in MODEL_MONTHS
+    ]
+    return data[indices]
 
 
 def expand_model_series(active_values, nyears):
@@ -800,8 +773,8 @@ def plot_combined_timeseries(series, dates, args):
     print(f"Saved: {csv_path}")
 
 
-def plot_conditional_swe_timeseries(series, dates, args):
-    """Plot SWE normalized by the diagnosed snow-covered regional area."""
+def plot_colm_snow_mask_swe_timeseries(series, dates, args):
+    """Plot SWE over grid cells diagnosed as snow-covered by CoLM."""
     fig, axes = plt.subplots(2, 1, figsize=(20, 6.6), sharex=True)
     csv_rows = []
     for row, experiment in enumerate(("OFF", "CPL")):
@@ -812,7 +785,7 @@ def plot_conditional_swe_timeseries(series, dates, args):
             block["reference"],
             color="black",
             linewidth=1.65,
-            label="ERA5-Land (sd / snow-covered area)",
+            label="ERA5-Land on CoLM snow mask (Mar-Aug)",
             zorder=3,
         )
         ax.plot(
@@ -822,7 +795,7 @@ def plot_conditional_swe_timeseries(series, dates, args):
             linewidth=1.35,
             marker="o",
             markersize=1.8,
-            label="CTL (f_scv / f_fsno; Mar-Aug)",
+            label="CTL on CoLM snow mask (Mar-Aug)",
         )
         ax.plot(
             dates,
@@ -831,18 +804,18 @@ def plot_conditional_swe_timeseries(series, dates, args):
             linewidth=1.35,
             marker="o",
             markersize=1.8,
-            label="EXP (f_scv / f_fsno; Mar-Aug)",
+            label="EXP on CoLM snow mask (Mar-Aug)",
         )
         for date in dates:
             if date.month == 1:
                 ax.axvline(date, color="0.86", linewidth=0.55, zorder=0)
         ax.set_title(
-            f"Snow-covered-area SWE - {experiment}",
+            f"SWE over CoLM snow-covered grid cells - {experiment}",
             loc="left",
             fontsize=10.8,
             fontweight="bold",
         )
-        ax.set_ylabel("Conditional SWE (mm)")
+        ax.set_ylabel("SWE (mm)")
         ax.grid(axis="y", color="0.88", linewidth=0.55)
         ax.margins(x=0.002)
         if row == 0:
@@ -866,7 +839,7 @@ def plot_conditional_swe_timeseries(series, dates, args):
         "Month (year is printed only at January; model curves contain Mar-Aug only)"
     )
     fig.suptitle(
-        "Monthly snow-covered-area SWE over gravel-content > 0.3 regions",
+        "Monthly SWE over CoLM snow-covered, gravel-content > 0.3 grid cells",
         fontsize=14,
         y=0.992,
     )
@@ -874,10 +847,10 @@ def plot_conditional_swe_timeseries(series, dates, args):
         0.5,
         0.012,
         (
-            r"Conditional mean = $\Sigma(A\,SWE_{grid}) / "
-            r"\Sigma(A\,f_{snow})$; cells with snow-cover fraction below "
-            f"{100.0 * args.snow_cover_threshold:g}% are excluded. "
-            "This sensitivity diagnostic does not replace the grid-box SWE figure."
+            "The monthly mask is the union of CTL and EXP CoLM grid cells with "
+            f"f_fsno >= {100.0 * args.snow_cover_threshold:g}%; ERA5-Land, CTL, "
+            "and EXP are averaged on that identical mask. This diagnostic does "
+            "not replace the all-gravel-region SWE figure."
         ),
         ha="center",
         fontsize=8.2,
@@ -885,14 +858,14 @@ def plot_conditional_swe_timeseries(series, dates, args):
     fig.tight_layout(rect=(0.025, 0.055, 0.995, 0.965))
     output = (
         args.output_dir
-        / "supp_land_swe_snow_covered_area_timeseries_gravel_gt_0p3.pdf"
+        / "supp_land_swe_colm_snow_mask_timeseries_gravel_gt_0p3.pdf"
     )
     fig.savefig(output, dpi=args.dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {output}")
     csv_path = (
         args.output_dir
-        / "supp_land_swe_snow_covered_area_timeseries_gravel_gt_0p3.csv"
+        / "supp_land_swe_colm_snow_mask_timeseries_gravel_gt_0p3.csv"
     )
     with csv_path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(csv_rows[0]))
@@ -902,8 +875,7 @@ def plot_conditional_swe_timeseries(series, dates, args):
 
 
 def run_snow_monthly_diagnostics(specs, description):
-    reference_specs = [*specs, ERA5_SNOW_COVER_SPEC]
-    parser = build_snow_parser(description, reference_specs)
+    parser = build_snow_parser(description, specs)
     args = parser.parse_args()
     if args.nyears < 1:
         raise ValueError("--nyears must be at least 1")
@@ -916,14 +888,14 @@ def run_snow_monthly_diagnostics(specs, description):
     inspect_gravel_file(args.gravel_file)
     years = list(range(args.start_year, args.start_year + args.nyears))
     reference_files = {}
-    for spec in reference_specs:
+    for spec in specs:
         files = resolve_reference_files(args, spec)
         inspect_monthly_reference(files, args, spec, years)
         reference_files[spec["key"]] = files
     if args.check_only:
         print(
-            "All model, SWE/SCF reference, ERA5 snow-cover, and gravel-mask "
-            "inputs passed validation; no figure was created."
+            "All model, SWE/SCF reference, and gravel-mask inputs passed "
+            "validation; no figure was created."
         )
         return
 
@@ -945,22 +917,9 @@ def run_snow_monthly_diagnostics(specs, description):
     args.output_dir.mkdir(parents=True, exist_ok=True)
     os.environ["CARTOPY_OFFLINE"] = "true"
     series = {}
-    conditional_swe_series = {}
+    colm_snow_mask_series = {}
     pie_fields = {"MAM": {}, "JJA": {}}
     scf_spec = next(spec for spec in specs if spec["key"] == "scf")
-    era5_snow_cover = load_reference_monthly(
-        reference_files[ERA5_SNOW_COVER_SPEC["key"]],
-        args,
-        ERA5_SNOW_COVER_SPEC,
-        years,
-        lat_grid,
-        lon_grid,
-        land_mask,
-    )
-    era5_snow_fraction = normalize_snow_fraction(
-        era5_snow_cover, "ERA5-Land snow cover"
-    )
-    del era5_snow_cover
 
     for spec in specs:
         key = spec["key"]
@@ -1009,12 +968,8 @@ def run_snow_monthly_diagnostics(specs, description):
                 land_mask,
                 inside,
             )
-            reference_conditional = snow_covered_area_mean_series(
-                reference,
-                era5_snow_fraction,
-                lat_grid,
-                gravel_mask,
-                args.snow_cover_threshold,
+            reference_active = select_active_model_months(
+                reference, args.nyears
             )
             for experiment in ("OFF", "CPL"):
                 ctl_fraction = normalize_snow_fraction(
@@ -1025,24 +980,34 @@ def run_snow_monthly_diagnostics(specs, description):
                     model_snow_cover[experiment]["exp"],
                     f"{experiment} EXP f_fsno",
                 )
-                ctl_conditional = snow_covered_area_mean_series(
+                snow_mask = (
+                    (ctl_fraction >= args.snow_cover_threshold)
+                    | (exp_fraction >= args.snow_cover_threshold)
+                )
+                reference_on_mask = dynamic_mask_area_mean_series(
+                    reference_active,
+                    snow_mask,
+                    lat_grid,
+                    gravel_mask,
+                )
+                ctl_on_mask = dynamic_mask_area_mean_series(
                     model[experiment]["ctl"],
-                    ctl_fraction,
+                    snow_mask,
                     lat_grid,
                     gravel_mask,
-                    args.snow_cover_threshold,
                 )
-                exp_conditional = snow_covered_area_mean_series(
+                exp_on_mask = dynamic_mask_area_mean_series(
                     model[experiment]["exp"],
-                    exp_fraction,
+                    snow_mask,
                     lat_grid,
                     gravel_mask,
-                    args.snow_cover_threshold,
                 )
-                conditional_swe_series[experiment] = {
-                    "reference": reference_conditional,
-                    "ctl": expand_model_series(ctl_conditional, args.nyears),
-                    "exp": expand_model_series(exp_conditional, args.nyears),
+                colm_snow_mask_series[experiment] = {
+                    "reference": expand_model_series(
+                        reference_on_mask, args.nyears
+                    ),
+                    "ctl": expand_model_series(ctl_on_mask, args.nyears),
+                    "exp": expand_model_series(exp_on_mask, args.nyears),
                 }
             del model_snow_cover
             seasons = {"MAM": (3, 4, 5), "JJA": (6, 7, 8)}
@@ -1059,5 +1024,5 @@ def run_snow_monthly_diagnostics(specs, description):
         del reference, model
 
     plot_combined_timeseries(series, dates, args)
-    plot_conditional_swe_timeseries(conditional_swe_series, dates, args)
+    plot_colm_snow_mask_swe_timeseries(colm_snow_mask_series, dates, args)
     plot_swe_pies(pie_fields, gravel_mask, args)
