@@ -547,6 +547,8 @@ def automatic_reference_factor(units, spec, year, month):
         .replace(" ", "")
         .replace("**", "^")
         .replace("−", "-")
+        .replace(".", "")
+        .replace("·", "")
     )
     if quantity == "rate_mm_day":
         if any(
