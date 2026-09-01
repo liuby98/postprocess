@@ -54,6 +54,10 @@ VARIABLES = [
             "FRSNO",
         ),
         "reference_quantity": "percent",
+        # Official MOD10CM outages remove June 2001 and March 2002.
+        # Omit the affected complete season-years from Reference/CTL/EXP
+        # together; never replace missing months with zero or interpolation.
+        "allow_incomplete_seasons": True,
     },
 ]
 
