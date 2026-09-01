@@ -156,14 +156,19 @@ def parse_granule(path: Path) -> Granule:
         )
     except ValueError as exc:
         raise ValueError(f"Invalid acquisition date in {path.name}: {exc}") from exc
+    # MOD10CM is a calendar-month product, but documented Terra outages
+    # can shift the acquisition date away from the first day. Normalize such
+    # granules to their containing calendar month; never shift them backward
+    # into the preceding month.
+    month = acquisition.replace(day=1)
     if acquisition.day != 1:
-        raise ValueError(
-            f"{path.name} resolves to {acquisition:%Y-%m-%d}, not the first "
-            "day of a month"
+        print(
+            f"[WARN] {path.name}: acquisition date "
+            f"{acquisition:%Y-%m-%d}; assigning it to {month:%Y-%m}"
         )
     return Granule(
         path=path,
-        month=acquisition,
+        month=month,
         collection=match.group("collection"),
         production=match.group("production"),
     )
