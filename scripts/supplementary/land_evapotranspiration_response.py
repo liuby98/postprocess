@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Evaluate total evapotranspiration in OFF and CPL experiments."""
+"""Plot spatial total-evapotranspiration evaluation."""
 
-from _land_response_common import run_category
+from _land_spatial_diagnostics import run_reference_spatial_category
 
 
 VARIABLES = [
@@ -17,6 +17,7 @@ VARIABLES = [
         "difference_cmap": "BrBG",
         "difference_fallback": 0.05,
         "reference_product": "GLEAM v4.2a",
+        "reference_short_name": "GLEAM v4.2a",
         "reference_globs": (
             "/share/home/dq135/openbench/Reference/Grid/HigRes/Water/"
             "Evapotranspiration/GLEAM_v4.2a/E_*_GLEAM_v4.2a.nc",
@@ -28,7 +29,7 @@ VARIABLES = [
 
 
 if __name__ == "__main__":
-    run_category(
+    run_reference_spatial_category(
         VARIABLES,
-        "Reference-based total-ET evaluation and gravel-response figures.",
+        "Spatial-only total-ET evaluation and gravel response.",
     )

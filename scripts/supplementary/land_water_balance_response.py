@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Evaluate infiltration in OFF and CPL experiments."""
+"""Plot spatial infiltration diagnostics without a reference product."""
 
-from _land_response_common import run_response_only_category
+from _land_spatial_diagnostics import run_response_only_spatial_category
 
 
 VARIABLES = [
@@ -21,7 +21,7 @@ VARIABLES = [
 
 
 if __name__ == "__main__":
-    run_response_only_category(
+    run_response_only_spatial_category(
         VARIABLES,
-        "Reference-free infiltration response diagnostics for gravel experiments.",
+        "Spatial-only infiltration response diagnostics; no reference product.",
     )

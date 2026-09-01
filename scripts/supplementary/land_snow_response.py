@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Evaluate SWE and snow-cover fraction in OFF and CPL experiments."""
+"""Plot monthly SWE/SCF diagnostics over gravel-rich regions."""
 
-from _land_response_common import run_category
+from _snow_monthly_diagnostics import run_snow_monthly_diagnostics
 
 
 VARIABLES = [
@@ -11,12 +11,9 @@ VARIABLES = [
         "title": "Snow water equivalent",
         "unit": "mm",
         "factor": 1.0,
-        "output_stem": "supp_land_swe",
         "nonnegative": True,
-        "state_cmap": "Blues",
-        "difference_cmap": "RdBu_r",
-        "difference_fallback": 1.0,
         "reference_product": "ERA5-Land SWE benchmark",
+        "reference_short_name": "ERA5-Land",
         "reference_globs": (
             "/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/"
             "Snow_Water_Equivalent/ERA5_Land/*.nc*",
@@ -36,12 +33,9 @@ VARIABLES = [
         "title": "Snow-cover fraction",
         "unit": "percentage points",
         "factor": 100.0,
-        "output_stem": "supp_land_scf",
         "nonnegative": True,
-        "state_cmap": "Blues",
-        "difference_cmap": "RdBu_r",
-        "difference_fallback": 1.0,
         "reference_product": "MODIS Terra MOD10CM Collection 6.1",
+        "reference_short_name": "MOD10CM C6.1",
         "reference_globs": (
             "/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/"
             "Snow_Cover_Fraction/MODIS_MOD10CM/*.nc*",
@@ -54,16 +48,12 @@ VARIABLES = [
             "FRSNO",
         ),
         "reference_quantity": "percent",
-        # Official MOD10CM outages remove June 2001 and March 2002.
-        # Omit the affected complete season-years from Reference/CTL/EXP
-        # together; never replace missing months with zero or interpolation.
-        "allow_incomplete_seasons": True,
     },
 ]
 
 
 if __name__ == "__main__":
-    run_category(
+    run_snow_monthly_diagnostics(
         VARIABLES,
-        "Reference-based SWE/SCF evaluation and gravel-response figures.",
+        "Monthly SWE/SCF series and SWE-range proportions for gravel > 0.3.",
     )

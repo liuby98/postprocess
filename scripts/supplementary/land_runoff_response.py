@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Evaluate total runoff in OFF and CPL experiments."""
+"""Plot spatial total-runoff evaluation."""
 
-from _land_response_common import run_category
+from _land_spatial_diagnostics import run_reference_spatial_category
 
 
 VARIABLES = [
@@ -17,6 +17,7 @@ VARIABLES = [
         "difference_cmap": "BrBG",
         "difference_fallback": 0.05,
         "reference_product": "G-RUN ENSEMBLE MMM",
+        "reference_short_name": "G-RUN ENSEMBLE MMM",
         "reference_globs": (
             "/share/home/dq135/openbench/Reference/Grid/LowRes/Water/"
             "Total_Runoff/G_RUN_ENSEMBLE/*.nc*",
@@ -39,7 +40,7 @@ VARIABLES = [
 
 
 if __name__ == "__main__":
-    run_category(
+    run_reference_spatial_category(
         VARIABLES,
-        "Reference-based total-runoff evaluation and gravel-response figures.",
+        "Spatial-only total-runoff evaluation and gravel response.",
     )
