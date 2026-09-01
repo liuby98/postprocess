@@ -183,6 +183,23 @@ python land_snow_response.py \
 
 ## Run
 
+To validate every input and then run snow, ET, total runoff, and infiltration
+sequentially, use the batch driver from an activated plotting environment:
+
+```bash
+nohup bash run_land_supplementary.sh \
+  > logs/run_land_supplementary_driver.log 2>&1 &
+echo $! > logs/run_land_supplementary.pid
+```
+
+The driver stops on the first failure and writes a separate timestamped log
+for every check and figure script. Its default snow paths are listed above;
+override `SWE_REFERENCE_FILE`, `ERA5_SNOW_COVER_REFERENCE_FILE`,
+`MODIS_SCF_REFERENCE_FILE`, or `SNOW_COVER_THRESHOLD` in the environment when
+needed.
+
+Individual commands remain available:
+
 ```bash
 nohup python land_snow_response.py \
   > logs/land_snow_monthly_$(date +%Y%m%d_%H%M%S).log 2>&1 &
