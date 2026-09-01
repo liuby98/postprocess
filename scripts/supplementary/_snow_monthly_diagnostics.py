@@ -188,12 +188,67 @@ def _read_orthogonal(variable, latitude_indices, longitude_indices):
     return data[np.argsort(lat_order)][:, np.argsort(lon_order)]
 
 
+def _gravel_coordinates(nc_obj, path, announce=False):
+    """Return explicit coordinates or infer global regular-grid cell centers."""
+    lower = {name.lower(): name for name in nc_obj.variables}
+    lat_name = next(
+        (lower[name] for name in ("lat", "latitude") if name in lower),
+        None,
+    )
+    lon_name = next(
+        (lower[name] for name in ("lon", "longitude") if name in lower),
+        None,
+    )
+    if (lat_name is None) != (lon_name is None):
+        raise ValueError(
+            f"{path} contains only one horizontal coordinate; both latitude "
+            "and longitude are required"
+        )
+    variable = nc_obj.variables["vf_gravels_s_l1"]
+    if variable.ndim != 2:
+        raise ValueError(
+            f"vf_gravels_s_l1 in {path} must be two-dimensional; "
+            f"found shape {variable.shape}"
+        )
+    nlat, nlon = variable.shape
+    if lat_name is not None:
+        source_lat = clean_array(nc_obj.variables[lat_name][:])
+        source_lon = clean_array(nc_obj.variables[lon_name][:])
+        if source_lat.ndim != 1 or source_lon.ndim != 1:
+            raise ValueError(f"Horizontal coordinates in {path} must be 1-D")
+        if source_lat.size != nlat or source_lon.size != nlon:
+            raise ValueError(
+                f"Coordinate sizes in {path} do not match gravel grid "
+                f"{(nlat, nlon)}"
+            )
+        return source_lat, source_lon
+
+    # The CoLM raw-data gravel file omits coordinate variables.  Its native
+    # grid is global, regular latitude-longitude, ordered north-to-south and
+    # west-to-east.  Infer cell centers only when the 2:1 global-grid geometry
+    # is unambiguous; otherwise stop rather than silently assigning coordinates.
+    if nlat < 2 or nlon != 2 * nlat:
+        raise ValueError(
+            f"{path} has no coordinate variables and shape {(nlat, nlon)} "
+            "is not an unambiguous global regular grid (expected nlon=2*nlat)"
+        )
+    dlat = 180.0 / nlat
+    dlon = 360.0 / nlon
+    source_lat = 90.0 - (np.arange(nlat, dtype=float) + 0.5) * dlat
+    source_lon = -180.0 + (np.arange(nlon, dtype=float) + 0.5) * dlon
+    if announce:
+        print(
+            f"[WARN] {path} has no latitude/longitude variables; inferred "
+            f"global cell-center coordinates from shape {(nlat, nlon)} "
+            f"({dlon:g} degree resolution)"
+        )
+    return source_lat, source_lon
+
+
 def inspect_gravel_file(path):
     if not Path(path).is_file():
         raise FileNotFoundError(f"Gravel file not found: {path}")
     with Dataset(path) as nc_obj:
-        find_coordinate(nc_obj, ("lat", "latitude"))
-        find_coordinate(nc_obj, ("lon", "longitude"))
         missing = [
             f"vf_gravels_s_l{layer}"
             for layer in range(1, 9)
@@ -201,14 +256,14 @@ def inspect_gravel_file(path):
         ]
         if missing:
             raise KeyError(f"Missing gravel variables in {path}: {missing}")
+        _gravel_coordinates(nc_obj, path, announce=True)
     print(f"[OK] Gravel mask source: {path}; layers=1-8")
 
 
 def load_gravel_mask(path, lat1d, lon1d, land_mask, threshold):
     """Thickness-average eight gravel layers at nearest 0.25-degree cells."""
     with Dataset(path) as nc_obj:
-        _, source_lat = find_coordinate(nc_obj, ("lat", "latitude"))
-        _, source_lon = find_coordinate(nc_obj, ("lon", "longitude"))
+        source_lat, source_lon = _gravel_coordinates(nc_obj, path)
         target_lon = ((np.asarray(lon1d) + 180.0) % 360.0) - 180.0
         normalized_source_lon = (
             (np.asarray(source_lon) + 180.0) % 360.0
