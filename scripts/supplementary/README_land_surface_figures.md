@@ -21,6 +21,8 @@ yearly series, regional metrics, or ACC figures. It creates only:
 ```text
 supp_land_snow_monthly_timeseries_gravel_gt_0p3.pdf
 supp_land_snow_monthly_timeseries_gravel_gt_0p3.csv
+supp_land_swe_snow_covered_area_timeseries_gravel_gt_0p3.pdf
+supp_land_swe_snow_covered_area_timeseries_gravel_gt_0p3.csv
 supp_land_swe_range_proportions_gravel_gt_0p3.pdf
 supp_land_swe_range_proportions_gravel_gt_0p3.csv
 ```
@@ -31,6 +33,22 @@ model files contain March-August only, so CTL and EXP are placed on the full
 monthly axis with January-February and September-December set to missing. This
 intentionally breaks the model curves between annual March-August segments.
 Every month has a tick; the year is printed only below January.
+
+The additional two-row SWE figure reports a snow-covered-area conditional
+mean for OFF and CPL.  For each month it is calculated separately for the
+reference, CTL, and EXP as:
+
+```text
+sum(grid-cell area * grid-box SWE) /
+sum(grid-cell area * snow-cover fraction)
+```
+
+ERA5-Land supplies `sd` and its own `snowc`; CoLM supplies `f_scv` and
+`f_fsno`. Cells with snow-cover fraction below 0.01 are excluded by default to
+avoid treating numerical traces as physical snow. Override this with
+`--snow-cover-threshold`. This is an explicitly labelled conditional
+sensitivity diagnostic. It does not replace the grid-box-mean SWE curve in
+the four-row main figure, and it does not multiply `sd` by `snowc`.
 
 All snow regional means and SWE pies use only China-land target cells whose
 vertically averaged gravel volumetric fraction is strictly greater than 0.3.
@@ -90,11 +108,16 @@ Bias, RMSE, KGE, or ACC file is generated.
 
 /share/home/dq135/openbench/Reference/Grid/HigRes/Snow/
   Snow_Water_Equivalent/ERA5_Land/*.nc*
+  Snow_Cover_Fraction/ERA5_Land/*.nc*
   Snow_Cover_Fraction/MODIS_MOD10CM/*.nc*
 ```
 
 Expected snow files include the 204-month ERA5-Land `sd` NetCDF and the merged
 MOD10CM `Snow_Cover_Monthly_CMG` NetCDF produced by `preprocess_mod10cm.py`.
+The conditional SWE diagnostic additionally requires the matching 204-month
+ERA5-Land `snowc` file on exactly the same monthly period. ERA5-Land `snowc`
+is used only as the snow-covered-area denominator; MOD10CM remains the
+independent reference for evaluating CoLM `f_fsno`.
 
 ## Convert MOD10CM HDF files
 
@@ -150,6 +173,8 @@ Paths and variables can be supplied explicitly, for example:
 python land_snow_response.py \
   --swe-reference-file '/path/ERA5_Land_SWE_2001-2017.nc' \
   --swe-reference-variable sd \
+  --era5-snow-cover-reference-file '/path/ERA5_Land_SnowCover_2001-2017.nc' \
+  --era5-snow-cover-reference-variable snowc \
   --scf-reference-file '/path/MOD10CM_SCF_2001_2017.nc' \
   --scf-reference-variable Snow_Cover_Monthly_CMG \
   --gravel-file '/path/vf_gravels_s.nc' \
