@@ -61,6 +61,25 @@ PIE_RANGES = (
     ("5-20 mm", 5.0, 20.0, False),
 )
 PIE_COLORS = ("#2171b5", "#6baed6", "#c6dbef")
+ERA5_SNOW_COVER_SPEC = {
+    "key": "era5_snow_cover",
+    "title": "ERA5-Land snow cover",
+    "unit": "percent",
+    "nonnegative": True,
+    "reference_product": "ERA5-Land snow-cover fraction",
+    "reference_globs": (
+        "/share/home/dq135/openbench/Reference/Grid/HigRes/Snow/"
+        "Snow_Cover_Fraction/ERA5_Land/*.nc*",
+    ),
+    "reference_variables": (
+        "snowc",
+        "snow_cover",
+        "snow_cover_fraction",
+        "SC",
+    ),
+    "reference_quantity": "percent",
+    "reference_default_factor": 100.0,
+}
 
 
 def build_snow_parser(description, specs):
@@ -79,6 +98,15 @@ def build_snow_parser(description, specs):
     parser.add_argument("--dpi", type=int, default=300)
     parser.add_argument("--gravel-file", type=Path, default=DEFAULT_GRAVEL_FILE)
     parser.add_argument("--gravel-threshold", type=float, default=0.3)
+    parser.add_argument(
+        "--snow-cover-threshold",
+        type=float,
+        default=0.01,
+        help=(
+            "Minimum snow-covered fraction retained in the conditional SWE "
+            "diagnostic (default: 0.01, i.e. 1 percent)."
+        ),
+    )
     parser.add_argument("--check-only", action="store_true")
     for spec in specs:
         key = spec["key"].replace("_", "-")
@@ -464,6 +492,68 @@ def area_mean_series(data, lat_grid, mask):
     return np.asarray(values)
 
 
+def normalize_snow_fraction(data, label):
+    """Normalize a snow-cover field supplied as either 0-1 or 0-100."""
+    output = np.asarray(data, dtype=float).copy()
+    finite = output[np.isfinite(output)]
+    if finite.size == 0:
+        raise ValueError(f"{label} contains no finite snow-cover values")
+    lower = float(np.nanmin(finite))
+    upper = float(np.nanmax(finite))
+    if lower < -1.0e-6:
+        raise ValueError(f"{label} contains negative snow-cover values: {lower:g}")
+    if upper <= 1.0 + 1.0e-6:
+        factor = 1.0
+    elif upper <= 100.0 + 1.0e-4:
+        factor = 0.01
+    else:
+        raise ValueError(
+            f"{label} snow-cover maximum {upper:g} is outside both the "
+            "0-1 fraction and 0-100 percent ranges"
+        )
+    output *= factor
+    output[(output < 0.0) | (output > 1.0 + 1.0e-6)] = np.nan
+    return np.clip(output, 0.0, 1.0)
+
+
+def snow_covered_area_mean_series(
+    swe,
+    snow_fraction,
+    lat_grid,
+    mask,
+    minimum_fraction,
+):
+    """Return regional SWE per unit snow-covered area.
+
+    ``swe`` is a grid-box-mean water-equivalent thickness.  The regional
+    conditional mean is sum(area * swe) / sum(area * snow_fraction), which is
+    numerically safer than averaging cellwise swe / snow_fraction.
+    """
+    if swe.shape != snow_fraction.shape:
+        raise ValueError(
+            "SWE and snow-cover arrays must have identical shapes; found "
+            f"{swe.shape} and {snow_fraction.shape}"
+        )
+    weights = np.cos(np.deg2rad(lat_grid))
+    values = []
+    for swe_field, fraction_field in zip(swe, snow_fraction):
+        valid = (
+            mask
+            & np.isfinite(swe_field)
+            & np.isfinite(fraction_field)
+            & (fraction_field >= minimum_fraction)
+        )
+        if np.count_nonzero(valid) < 1:
+            values.append(np.nan)
+            continue
+        numerator = np.sum(swe_field[valid] * weights[valid])
+        denominator = np.sum(
+            fraction_field[valid] * weights[valid]
+        )
+        values.append(numerator / denominator if denominator > 0 else np.nan)
+    return np.asarray(values)
+
+
 def expand_model_series(active_values, nyears):
     full = np.full(nyears * 12, np.nan, dtype=float)
     cursor = 0
@@ -710,26 +800,130 @@ def plot_combined_timeseries(series, dates, args):
     print(f"Saved: {csv_path}")
 
 
+def plot_conditional_swe_timeseries(series, dates, args):
+    """Plot SWE normalized by the diagnosed snow-covered regional area."""
+    fig, axes = plt.subplots(2, 1, figsize=(20, 6.6), sharex=True)
+    csv_rows = []
+    for row, experiment in enumerate(("OFF", "CPL")):
+        ax = axes[row]
+        block = series[experiment]
+        ax.plot(
+            dates,
+            block["reference"],
+            color="black",
+            linewidth=1.65,
+            label="ERA5-Land (sd / snow-covered area)",
+            zorder=3,
+        )
+        ax.plot(
+            dates,
+            block["ctl"],
+            color="#2166ac",
+            linewidth=1.35,
+            marker="o",
+            markersize=1.8,
+            label="CTL (f_scv / f_fsno; Mar-Aug)",
+        )
+        ax.plot(
+            dates,
+            block["exp"],
+            color="#d73027",
+            linewidth=1.35,
+            marker="o",
+            markersize=1.8,
+            label="EXP (f_scv / f_fsno; Mar-Aug)",
+        )
+        for date in dates:
+            if date.month == 1:
+                ax.axvline(date, color="0.86", linewidth=0.55, zorder=0)
+        ax.set_title(
+            f"Snow-covered-area SWE - {experiment}",
+            loc="left",
+            fontsize=10.8,
+            fontweight="bold",
+        )
+        ax.set_ylabel("Conditional SWE (mm)")
+        ax.grid(axis="y", color="0.88", linewidth=0.55)
+        ax.margins(x=0.002)
+        if row == 0:
+            ax.legend(ncol=3, frameon=False, loc="upper right", fontsize=8.3)
+        for index, date in enumerate(dates):
+            csv_rows.append(
+                {
+                    "date": date.strftime("%Y-%m"),
+                    "experiment": experiment,
+                    "reference": block["reference"][index],
+                    "ctl": block["ctl"][index],
+                    "exp": block["exp"][index],
+                    "gravel_threshold": args.gravel_threshold,
+                    "snow_cover_threshold": args.snow_cover_threshold,
+                }
+            )
+    axes[-1].set_xticks(dates)
+    axes[-1].set_xticklabels(_monthly_tick_labels(dates), fontsize=4.6)
+    axes[-1].tick_params(axis="x", length=2.2, pad=2)
+    axes[-1].set_xlabel(
+        "Month (year is printed only at January; model curves contain Mar-Aug only)"
+    )
+    fig.suptitle(
+        "Monthly snow-covered-area SWE over gravel-content > 0.3 regions",
+        fontsize=14,
+        y=0.992,
+    )
+    fig.text(
+        0.5,
+        0.012,
+        (
+            r"Conditional mean = $\Sigma(A\,SWE_{grid}) / "
+            r"\Sigma(A\,f_{snow})$; cells with snow-cover fraction below "
+            f"{100.0 * args.snow_cover_threshold:g}% are excluded. "
+            "This sensitivity diagnostic does not replace the grid-box SWE figure."
+        ),
+        ha="center",
+        fontsize=8.2,
+    )
+    fig.tight_layout(rect=(0.025, 0.055, 0.995, 0.965))
+    output = (
+        args.output_dir
+        / "supp_land_swe_snow_covered_area_timeseries_gravel_gt_0p3.pdf"
+    )
+    fig.savefig(output, dpi=args.dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {output}")
+    csv_path = (
+        args.output_dir
+        / "supp_land_swe_snow_covered_area_timeseries_gravel_gt_0p3.csv"
+    )
+    with csv_path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(csv_rows[0]))
+        writer.writeheader()
+        writer.writerows(csv_rows)
+    print(f"Saved: {csv_path}")
+
+
 def run_snow_monthly_diagnostics(specs, description):
-    parser = build_snow_parser(description, specs)
+    reference_specs = [*specs, ERA5_SNOW_COVER_SPEC]
+    parser = build_snow_parser(description, reference_specs)
     args = parser.parse_args()
     if args.nyears < 1:
         raise ValueError("--nyears must be at least 1")
     if not np.isfinite(args.gravel_threshold):
         raise ValueError("--gravel-threshold must be finite")
+    if not 0.0 < args.snow_cover_threshold <= 1.0:
+        raise ValueError("--snow-cover-threshold must be in the interval (0, 1]")
     model_files = resolve_model_files(args)
     validate_model_inputs(model_files, specs, args.nyears)
     inspect_gravel_file(args.gravel_file)
     years = list(range(args.start_year, args.start_year + args.nyears))
     reference_files = {}
-    for spec in specs:
+    for spec in reference_specs:
         files = resolve_reference_files(args, spec)
         inspect_monthly_reference(files, args, spec, years)
         reference_files[spec["key"]] = files
     if args.check_only:
         print(
-            "All model, reference, and gravel-mask inputs passed validation; "
-            "no figure was created."
+            "All model, SWE/SCF reference, ERA5 snow-cover, and gravel-mask "
+            "inputs passed validation; no figure was created."
         )
         return
 
@@ -751,7 +945,22 @@ def run_snow_monthly_diagnostics(specs, description):
     args.output_dir.mkdir(parents=True, exist_ok=True)
     os.environ["CARTOPY_OFFLINE"] = "true"
     series = {}
+    conditional_swe_series = {}
     pie_fields = {"MAM": {}, "JJA": {}}
+    scf_spec = next(spec for spec in specs if spec["key"] == "scf")
+    era5_snow_cover = load_reference_monthly(
+        reference_files[ERA5_SNOW_COVER_SPEC["key"]],
+        args,
+        ERA5_SNOW_COVER_SPEC,
+        years,
+        lat_grid,
+        lon_grid,
+        land_mask,
+    )
+    era5_snow_fraction = normalize_snow_fraction(
+        era5_snow_cover, "ERA5-Land snow cover"
+    )
+    del era5_snow_cover
 
     for spec in specs:
         key = spec["key"]
@@ -791,6 +1000,51 @@ def run_snow_monthly_diagnostics(specs, description):
                 "exp": expand_model_series(exp_active, args.nyears),
             }
         if key == "swe":
+            model_snow_cover = load_model_monthly(
+                model_files,
+                scf_spec,
+                args.nyears,
+                source_index,
+                lat_grid.shape,
+                land_mask,
+                inside,
+            )
+            reference_conditional = snow_covered_area_mean_series(
+                reference,
+                era5_snow_fraction,
+                lat_grid,
+                gravel_mask,
+                args.snow_cover_threshold,
+            )
+            for experiment in ("OFF", "CPL"):
+                ctl_fraction = normalize_snow_fraction(
+                    model_snow_cover[experiment]["ctl"],
+                    f"{experiment} CTL f_fsno",
+                )
+                exp_fraction = normalize_snow_fraction(
+                    model_snow_cover[experiment]["exp"],
+                    f"{experiment} EXP f_fsno",
+                )
+                ctl_conditional = snow_covered_area_mean_series(
+                    model[experiment]["ctl"],
+                    ctl_fraction,
+                    lat_grid,
+                    gravel_mask,
+                    args.snow_cover_threshold,
+                )
+                exp_conditional = snow_covered_area_mean_series(
+                    model[experiment]["exp"],
+                    exp_fraction,
+                    lat_grid,
+                    gravel_mask,
+                    args.snow_cover_threshold,
+                )
+                conditional_swe_series[experiment] = {
+                    "reference": reference_conditional,
+                    "ctl": expand_model_series(ctl_conditional, args.nyears),
+                    "exp": expand_model_series(exp_conditional, args.nyears),
+                }
+            del model_snow_cover
             seasons = {"MAM": (3, 4, 5), "JJA": (6, 7, 8)}
             for season, months in seasons.items():
                 pie_fields[season]["ERA5-Land"] = seasonal_climatology(
@@ -805,4 +1059,5 @@ def run_snow_monthly_diagnostics(specs, description):
         del reference, model
 
     plot_combined_timeseries(series, dates, args)
+    plot_conditional_swe_timeseries(conditional_swe_series, dates, args)
     plot_swe_pies(pie_fields, gravel_mask, args)
